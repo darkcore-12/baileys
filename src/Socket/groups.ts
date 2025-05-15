@@ -232,6 +232,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 			const result = getBinaryNodeChild(results, 'group')
 			return result?.attrs.jid
 		},
+
 		/**
 		 * revoke a v4 invite for someone
 		 * @param groupJid group jid
@@ -242,6 +243,7 @@ export const makeGroupsSocket = (config: SocketConfig) => {
 			const result = await groupQuery(groupJid, 'set', [{ tag: 'revoke', attrs: {}, content: [{ tag: 'participant', attrs: { jid: invitedJid } }] }])
 			return !!result
 		},
+
 		/**
 		 * accept a GroupInviteMessage
 		 * @param key the key of the invite message, or optionally only provide the jid of the person who sent the invite
@@ -327,18 +329,11 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 	const descChild = getBinaryNodeChild(group, 'description')
 	let desc: string | undefined
 	let descId: string | undefined
-	let descOwner: string | undefined
-	let descOwnerPhoneNumber: string | undefined
-	let descTime: number | undefined
 	if(descChild) {
 		desc = getBinaryNodeChildString(descChild, 'body')
-		descOwner = descChild.attrs.participant
-		descOwnerPhoneNumber = descChild.attrs.participant_pn
 		descId = descChild.attrs.id
-		descTime = +descChild.attrs.t
 	}
 
-	const groupSize = group.attrs.size ? Number(group.attrs.size) : undefined
 	const groupId = group.attrs.id.includes('@') ? group.attrs.id : jidEncode(group.attrs.id, 'g.us')
 	const eph = getBinaryNodeChild(group, 'ephemeral')?.attrs.expiration
 	const memberAddMode = getBinaryNodeChildString(group, 'member_add_mode') === 'all_member_add'
@@ -347,16 +342,12 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 		addressingMode: group.attrs.addressing_mode as "pn" | "lid",
 		subject: group.attrs.subject,
 		subjectOwner: group.attrs.s_o,
-		subjectOwnerPhoneNumber: group.attrs.s_o_pn,
 		subjectTime: +group.attrs.s_t,
-		size: groupSize || getBinaryNodeChildren(group, 'participant').length,
+		size: getBinaryNodeChildren(group, 'participant').length,
 		creation: +group.attrs.creation,
 		owner: group.attrs.creator ? jidNormalizedUser(group.attrs.creator) : undefined,
 		desc,
 		descId,
-		descOwner,
-		descOwnerPhoneNumber,
-		descTime,
 		linkedParent: getBinaryNodeChild(group, 'linked_parent')?.attrs.jid || undefined,
 		restrict: !!getBinaryNodeChild(group, 'locked'),
 		announce: !!getBinaryNodeChild(group, 'announcement'),
@@ -368,7 +359,6 @@ export const extractGroupMetadata = (result: BinaryNode) => {
 			({ attrs }) => {
 				return {
 					id: attrs.jid,
-					phoneNumber: attrs.phone_number || attrs.jid,
 					admin: (attrs.type || null) as GroupParticipant['admin'],
 				}
 			}

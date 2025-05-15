@@ -6,7 +6,6 @@ import { MEDIA_HKDF_KEY_MAPPING } from '../Defaults'
 import { BinaryNode } from '../WABinary'
 import type { GroupMetadata } from './GroupMetadata'
 import { CacheStore } from './Socket'
-import { ILogger } from '../Utils/logger'
 
 // export the WAMessage Prototypes
 export { proto as WAProto }
@@ -14,14 +13,17 @@ export type WAMessage = proto.IWebMessageInfo
 export type WAMessageContent = proto.IMessage
 export type WAContactMessage = proto.Message.IContactMessage
 export type WAContactsArrayMessage = proto.Message.IContactsArrayMessage
-export type WAMessageKey = proto.IMessageKey & {server_id?: string}
+export type WAMessageKey = proto.IMessageKey
 export type WATextMessage = proto.Message.IExtendedTextMessage
 export type WAContextInfo = proto.IContextInfo
 export type WALocationMessage = proto.Message.ILocationMessage
 export type WAGenericMediaMessage = proto.Message.IVideoMessage | proto.Message.IImageMessage | proto.Message.IAudioMessage | proto.Message.IDocumentMessage | proto.Message.IStickerMessage
 export const WAMessageStubType = proto.WebMessageInfo.StubType
 export const WAMessageStatus = proto.WebMessageInfo.Status
-export type WAMediaUpload = Buffer | { url: URL | string } | { stream: Readable }
+import { ILogger } from '../Utils/logger'
+export type WAMediaPayloadURL = { url: URL | string }
+export type WAMediaPayloadStream = { stream: Readable }
+export type WAMediaUpload = Buffer | WAMediaPayloadStream | WAMediaPayloadURL
 /** Set of message types that are supported by the library */
 export type MessageType = keyof proto.Message
 
@@ -59,49 +61,8 @@ type ViewOnce = {
     viewOnce?: boolean
 }
 
-type Buttonable = {
-    /** add buttons to the message  */
-    buttons?: proto.Message.ButtonsMessage.IButton[]
-}
-type Templatable = {
-    /** add buttons to the message (conflicts with normal buttons)*/
-    templateButtons?: proto.IHydratedTemplateButton[]
-
-    footer?: string
-}
-type Interactiveable = {
-    /** add buttons to the message  */
-    interactiveButtons?: proto.Message.InteractiveMessage.NativeFlowMessage.NativeFlowButton[]
-    title?: string
-    subtitle?: string
-    media?: boolean
-}
-type Shopable = {
-    shop?: proto.Message.InteractiveMessage.ShopMessage.Surface
-    id?: string
-    title?: string
-    subtitle?: string
-    media?: boolean
-}
-type Cardsable = {
-    cards?: string[]
-    subtitle?: string
-}
 type Editable = {
-    edit?: WAMessageKey
-}
-type Listable = {
-    /** Sections of the List */
-    sections?: proto.Message.ListMessage.ISection[]
-
-    /** Title of a List Message only */
-    title?: string
-
-    /** Text of the button on the list (required) */
-    buttonText?: string
-    
-    /** ListType of a List Message only */
-    listType?: proto.Message.ListMessage.ListType
+  edit?: WAMessageKey
 }
 type WithDimensions = {
     width?: number
@@ -131,7 +92,7 @@ export type AnyMediaMessageContent = (
         image: WAMediaUpload
         caption?: string
         jpegThumbnail?: string
-    } & Mentionable & Contextable & Buttonable & Templatable & Interactiveable & Shopable & Cardsable & WithDimensions)
+    } & Mentionable & Contextable & WithDimensions)
     | ({
         video: WAMediaUpload
         caption?: string
@@ -139,7 +100,7 @@ export type AnyMediaMessageContent = (
         jpegThumbnail?: string
         /** if set to true, will send as a `video note` */
         ptv?: boolean
-    } & Mentionable & Contextable & Buttonable & Templatable & Interactiveable & Shopable & Cardsable & WithDimensions)
+    } & Mentionable & Contextable & WithDimensions)
     | {
         audio: WAMediaUpload
         /** if set to true, will send as a `voice note` */
@@ -155,7 +116,7 @@ export type AnyMediaMessageContent = (
         mimetype: string
         fileName?: string
         caption?: string
-    } & Contextable & Buttonable & Templatable & Interactiveable & Shopable & Cardsable))
+    } & Contextable))
     & { mimetype?: string } & Editable
 
 export type ButtonReplyInfo = {
@@ -172,60 +133,6 @@ export type GroupInviteInfo = {
     subject: string
 }
 
-export type CallCreationInfo = {
-    time?: number
-    title?: string
-    type?: number
-}
-
-export type AdminInviteInfo = {
-    inviteExpiration: number
-    text: string
-    jid: string
-    subject: string
-    thumbnail: Buffer
-}
-
-export type PaymentInviteInfo = {
-    type?: number
-    expiry?: number
-}
-
-export type RequestPaymentInfo = {
-    expiry: number
-    amount: number
-    currency: string
-    from: string
-    note?: string
-    sticker?: WAMediaUpload
-    background: string
-    /** add contextInfo to the message */
-    contextInfo?: proto.IContextInfo
-}
-
-export type EventsInfo = {
-    isCanceled?: boolean
-    name: string
-    description: string
-    joinLink?: string
-    startTime?: number
-    messageSecret?: Uint8Array
-}
-
-export type OrderInfo = {
-    id: number
-    thumbnail: string
-    itemCount: number
-    status: number
-    surface: number
-    title: string
-    text: string
-    seller: string
-    token: string
-    amount: number
-    currency: string
-}
-
 export type WASendableProduct = Omit<proto.Message.ProductMessage.IProductSnapshot, 'productImage'> & {
     productImage: WAMediaUpload
 }
@@ -235,11 +142,11 @@ export type AnyRegularMessageContent = (
 	    text: string
         linkPreview?: WAUrlInfo | null
     }
-    & Mentionable & Contextable & Buttonable & Templatable & Interactiveable & Shopable & Cardsable & Listable & Editable)
+    & Mentionable & Contextable & Editable)
     | AnyMediaMessageContent
     | ({
         poll: PollMessageOptions
-    } & Mentionable & Contextable & Buttonable & Templatable & Editable)
+    } & Mentionable & Contextable & Editable)
     | {
         contacts: {
             displayName?: string
@@ -269,41 +176,11 @@ export type AnyRegularMessageContent = (
         time?: 86400 | 604800 | 2592000
     }
     | {
-        keep: WAMessageKey
-        type: number
-        /**
-         * 24 hours, 7 days, 90 days
-         */
-        time?: 86400 | 604800 | 7776000
-    }
-    | {
-        paymentInvite: PaymentInviteInfo
-    }
-    | {
-        requestPayment: RequestPaymentInfo
-    }
-    | {
-        event: EventsInfo
-    }
-    | {
-        order: OrderInfo
-    }
-    | {
-        call: CallCreationInfo
-    } 
-    | {
-        inviteAdmin: AdminInviteInfo
-    }
-    | {
-        listReply: Omit<proto.Message.IListResponseMessage, 'contextInfo'>
-    }
-    | ({
         product: WASendableProduct
         businessOwnerJid?: string
         body?: string
         footer?: string
-    } & Mentionable & Contextable & Interactiveable & Shopable & Cardsable & WithDimensions)
-    | SharePhoneNumber | RequestPhoneNumber
+    } | SharePhoneNumber | RequestPhoneNumber
 ) & ViewOnce
 
 export type AnyMessageContent = AnyRegularMessageContent | {
@@ -335,7 +212,6 @@ export type MessageRelayOptions = MinimalRelayOptions & {
     useUserDevicesCache?: boolean
     /** jid list of participants for status@broadcast */
     statusJidList?: string[]
-    newsletter?: boolean
 }
 
 export type MiscMessageGenerationOptions = MinimalRelayOptions & {
@@ -355,16 +231,12 @@ export type MiscMessageGenerationOptions = MinimalRelayOptions & {
     font?: number
     /** if it is broadcast */
     broadcast?: boolean
-    newsletter?: boolean
-    additionalNodes?: BinaryNode[];
 }
 export type MessageGenerationOptionsFromContent = MiscMessageGenerationOptions & {
 	userJid: string
 }
 
-export type WAMediaUploadFunctionOpts = { fileEncSha256B64: string, mediaType: MediaType, newsletter?: boolean, timeoutMs?: number }
-
-export type WAMediaUploadFunction = (readStream: Readable | Buffer, opts: WAMediaUploadFunctionOpts) => Promise<{ mediaUrl: string, directPath: string, handle?: string }>
+export type WAMediaUploadFunction = (readStream: Readable, opts: { fileEncSha256B64: string, mediaType: MediaType, timeoutMs?: number }) => Promise<{ mediaUrl: string, directPath: string }>
 
 export type MediaGenerationOptions = {
 	logger?: ILogger
@@ -380,13 +252,10 @@ export type MediaGenerationOptions = {
     backgroundColor?: string
 
     font?: number
-    
-    /** The message is for newsletter? */
-    newsletter?: boolean
 }
 export type MessageContentGenerationOptions = MediaGenerationOptions & {
 	getUrlInfo?: (text: string) => Promise<WAUrlInfo | undefined>
-	getProfilePicUrl?: (jid: string, type: 'image' | 'preview') => Promise<string | undefined>
+    getProfilePicUrl?: (jid: string, type: 'image' | 'preview') => Promise<string | undefined>
 }
 export type MessageGenerationOptions = MessageContentGenerationOptions & MessageGenerationOptionsFromContent
 

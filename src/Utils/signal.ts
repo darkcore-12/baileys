@@ -74,7 +74,7 @@ export const parseAndInjectE2ESessions = async(
 	const extractKey = (key: BinaryNode) => (
 		key ? ({
 			keyId: getBinaryNodeChildUInt(key, 'id', 3)!,
-			publicKey: generateSignalPubKey(getBinaryNodeChildBuffer(key, 'value')!)!,
+			publicKey: generateSignalPubKey(getBinaryNodeChildBuffer(key, 'value')!),
 			signature: getBinaryNodeChildBuffer(key, 'signature')!,
 		}) : undefined
 	)
@@ -117,7 +117,9 @@ export const parseAndInjectE2ESessions = async(
 
 export const extractDeviceJids = (result: USyncQueryResultList[], myJid: string, excludeZeroDevices: boolean) => {
 	const { user: myUser, device: myDevice } = jidDecode(myJid)!
+
 	const extracted: JidWithDevice[] = []
+
 
 	for(const userResult of result) {
 		const { devices, id } = userResult as { devices: ParsedDeviceInfo, id: string }

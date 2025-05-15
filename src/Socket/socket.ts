@@ -8,9 +8,6 @@ import {
 	DEF_TAG_PREFIX,
 	INITIAL_PREKEY_COUNT,
 	MIN_PREKEY_COUNT,
-	MOBILE_ENDPOINT,
-	MOBILE_NOISE_HEADER,
-	MOBILE_PORT,
 	NOISE_WA_HEADER
 } from '../Defaults'
 import { DisconnectReason, SocketConfig } from '../Types'
@@ -24,7 +21,6 @@ import {
 	derivePairingCodeKey,
 	generateLoginNode,
 	generateMdTagPrefix,
-	generateMobileNode,
 	generateRegistrationNode,
 	getCodeFromWSError,
 	getErrorCodeFromStreamError,
@@ -32,7 +28,6 @@ import {
 	getPlatformId,
 	makeEventBuffer,
 	makeNoiseHandler,
-	printQRIfNecessaryListener,
 	promiseTimeout,
 } from '../Utils'
 import {
@@ -45,7 +40,7 @@ import {
 	jidEncode,
 	S_WHATSAPP_NET
 } from '../WABinary'
-import { MobileSocketClient, WebSocketClient } from './Client'
+import { WebSocketClient } from './Client'
 
 /**
  * Connects to WA servers and performs:
@@ -69,19 +64,22 @@ export const makeSocket = (config: SocketConfig) => {
 		makeSignalRepository,
 	} = config
 
-	let url = typeof waWebSocketUrl === 'string' ? new URL(waWebSocketUrl) : waWebSocketUrl
-
-	config.mobile = config.mobile || url.protocol === 'tcp:'
-
-	if(config.mobile && url.protocol !== 'tcp:') {
-		url = new URL(`tcp://${MOBILE_ENDPOINT}:${MOBILE_PORT}`)
+	if(printQRInTerminal) {
+		console.warn('⚠️ The printQRInTerminal option has been deprecated. You will no longer receive QR codes in the terminal automatically. Please listen to the connection.update event yourself and handle the QR your way. You can remove this message by removing this opttion. This message will be removed in a future version.')
 	}
-	
-	if(!config.mobile && url.protocol === 'wss' && authState?.creds?.routingInfo) {
-		url.searchParams.append('ED', authState.creds.routingInfo.toString('base64url'))
-	}	
 
-	const ws = config.socket ? config.socket : config.mobile ? new MobileSocketClient(url, config) : new WebSocketClient(url, config)
+	const url = typeof waWebSocketUrl === 'string' ? new URL(waWebSocketUrl) : waWebSocketUrl
+
+
+	if(config.mobile || url.protocol === 'tcp:') {
+		throw new Boom('Mobile API is not supported anymore', { statusCode: DisconnectReason.loggedOut })
+	}
+
+	if(url.protocol === 'wss' && authState?.creds?.routingInfo) {
+		url.searchParams.append('ED', authState.creds.routingInfo.toString('base64url'))
+	}
+
+	const ws = new WebSocketClient(url, config)
 
 	ws.connect()
 
@@ -91,8 +89,7 @@ export const makeSocket = (config: SocketConfig) => {
 	/** WA noise protocol wrapper */
 	const noise = makeNoiseHandler({
 		keyPair: ephemeralKeyPair,
-		NOISE_HEADER: config.mobile ? MOBILE_NOISE_HEADER : NOISE_WA_HEADER,
-		mobile: config.mobile,
+		NOISE_HEADER: NOISE_WA_HEADER,
 		logger,
 		routingInfo: authState?.creds?.routingInfo
 	})
@@ -218,6 +215,7 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 
 		const msgId = node.attrs.id
+
 		const [result] = await Promise.all([
 			waitForMessage(msgId, timeoutMs),
 			sendNode(node)
@@ -249,9 +247,7 @@ export const makeSocket = (config: SocketConfig) => {
 		const keyEnc = await noise.processHandshake(handshake, creds.noiseKey)
 
 		let node: proto.IClientPayload
-		if(config.mobile) {
-			node = generateMobileNode(config)
-		} else if(!creds.me) {
+		if(!creds.me) {
 			node = generateRegistrationNode(creds, config)
 			logger.info({ node }, 'not logged in, attempting registration...')
 		} else {
@@ -337,11 +333,12 @@ export const makeSocket = (config: SocketConfig) => {
 				const l1 = frame.attrs || {}
 				const l2 = Array.isArray(frame.content) ? frame.content[0]?.tag : ''
 
-				Object.keys(l1).forEach(key => {
+				for(const key of Object.keys(l1)) {
 					anyTriggered = ws.emit(`${DEF_CALLBACK_PREFIX}${l0},${key}:${l1[key]},${l2}`, frame) || anyTriggered
 					anyTriggered = ws.emit(`${DEF_CALLBACK_PREFIX}${l0},${key}:${l1[key]}`, frame) || anyTriggered
 					anyTriggered = ws.emit(`${DEF_CALLBACK_PREFIX}${l0},${key}`, frame) || anyTriggered
-				})
+				}
+
 				anyTriggered = ws.emit(`${DEF_CALLBACK_PREFIX}${l0},,${l2}`, frame) || anyTriggered
 				anyTriggered = ws.emit(`${DEF_CALLBACK_PREFIX}${l0}`, frame) || anyTriggered
 
@@ -490,12 +487,8 @@ export const makeSocket = (config: SocketConfig) => {
 		end(new Boom(msg || 'Intentional Logout', { statusCode: DisconnectReason.loggedOut }))
 	}
 
-	const requestPairingCode = async(phoneNumber: string, pairCode: string): Promise<string> => {
-		if(pairCode) {
-			authState.creds.pairingCode = pairCode.substring(0, 8).toUpperCase()
-		} else {
-			authState.creds.pairingCode = bytesToCrockford(randomBytes(5))
-		}
+	const requestPairingCode = async(phoneNumber: string): Promise<string> => {
+		authState.creds.pairingCode = bytesToCrockford(randomBytes(5))
 		authState.creds.me = {
 			id: jidEncode(phoneNumber, 's.whatsapp.net'),
 			name: '~'
@@ -558,7 +551,7 @@ export const makeSocket = (config: SocketConfig) => {
 		const ciphered = aesEncryptCTR(authState.creds.pairingEphemeralKeyPair.public, key, randomIv)
 		return Buffer.concat([salt, randomIv, ciphered])
 	}
-	
+
 	const sendWAMBuffer = (wamBuffer: Buffer) => {
 		return query({
 			tag: 'iq',
@@ -578,7 +571,7 @@ export const makeSocket = (config: SocketConfig) => {
 	}
 
 	ws.on('message', onMessageReceived)
-	
+
 	ws.on('open', async() => {
 		try {
 			await validateConnection()
@@ -655,20 +648,15 @@ export const makeSocket = (config: SocketConfig) => {
 	})
 	// login complete
 	ws.on('CB:success', async(node: BinaryNode) => {
-		try {
-			await uploadPreKeysToServerIfRequired()
-			await sendPassiveIq('active')
-			
-			logger.info('opened connection to WA')
-			clearTimeout(qrTimer) // will never happen in all likelyhood -- but just in case WA sends success on first try
-			
-			ev.emit('creds.update', { me: { ...authState.creds.me!, lid: node.attrs.lid } })
-			
-			ev.emit('connection.update', { connection: 'open' })
-		} catch (err) {
-			logger.error({ err }, 'error opening connection')
-			end(err)
-		}
+		await uploadPreKeysToServerIfRequired()
+		await sendPassiveIq('active')
+
+		logger.info('opened connection to WA')
+		clearTimeout(qrTimer) // will never happen in all likelyhood -- but just in case WA sends success on first try
+
+		ev.emit('creds.update', { me: { ...authState.creds.me!, lid: node.attrs.lid } })
+
+		ev.emit('connection.update', { connection: 'open' })
 	})
 
 	ws.on('CB:stream:error', (node: BinaryNode) => {
@@ -689,7 +677,7 @@ export const makeSocket = (config: SocketConfig) => {
 	})
 
 	ws.on('CB:ib,,offline_preview', (node: BinaryNode) => {
-		logger.info('offline preview received', JSON.stringify(node))
+	  logger.info('offline preview received', JSON.stringify(node))
 		sendNode({
 			tag: 'ib',
 			attrs: {},
@@ -750,9 +738,6 @@ export const makeSocket = (config: SocketConfig) => {
 		Object.assign(creds, update)
 	})
 
-	if(printQRInTerminal) {
-		printQRIfNecessaryListener(ev, logger)
-	}
 
 	return {
 		type: 'md' as 'md',
@@ -795,5 +780,3 @@ function mapWebSocketError(handler: (err: Error) => void) {
 		)
 	}
 }
-
-export type Socket = ReturnType<typeof makeSocket>
