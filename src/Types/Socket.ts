@@ -3,11 +3,11 @@ import { AxiosRequestConfig } from 'axios'
 import type { Agent } from 'https'
 import type { URL } from 'url'
 import { proto } from '../../WAProto'
-import { ILogger } from '../Utils/logger'
 import { AuthenticationState, SignalAuthState, TransactionCapabilityOptions } from './Auth'
 import { GroupMetadata } from './GroupMetadata'
 import { MediaConnInfo } from './Message'
 import { SignalRepository } from './Signal'
+import { ILogger } from '../Utils/logger'
 
 export type WAVersion = [number, number, number]
 export type WABrowserDescription = [string, string, string]
@@ -34,9 +34,7 @@ export type SocketConfig = {
     defaultQueryTimeoutMs: number | undefined
     /** ping-pong interval for WS connection */
     keepAliveIntervalMs: number
-	/** should baileys use the mobile api instead of the multi device api
-     * @deprecated This feature has been removed
-    */
+	/** should baileys use the mobile api instead of the multi device api */
 	mobile?: boolean
     /** proxy agent */
     agent?: Agent
@@ -48,10 +46,8 @@ export type SocketConfig = {
     browser: WABrowserDescription
     /** agent used for fetch requests -- uploading/downloading media */
     fetchAgent?: Agent
-    /** should the QR be printed in the terminal
-    * @deprecated This feature has been removed
-    */
-    printQRInTerminal?: boolean
+    /** should the QR be printed in the terminal */
+    printQRInTerminal: boolean
     /** should events be emitted for actions done by this socket connection */
     emitOwnEvents: boolean
     /** custom upload hosts to upload media to */
@@ -109,7 +105,7 @@ export type SocketConfig = {
     patchMessageBeforeSending: (
         msg: proto.IMessage,
         recipientJids?: string[],
-    ) => Promise<PatchedMessageWithRecipientJID[] | PatchedMessageWithRecipientJID> | PatchedMessageWithRecipientJID[] | PatchedMessageWithRecipientJID
+     ) => Promise<PatchedMessageWithRecipientJID[] | PatchedMessageWithRecipientJID> | PatchedMessageWithRecipientJID[] | PatchedMessageWithRecipientJID
 
     /** verify app state MACs */
     appStateMacVerification: {
@@ -130,4 +126,7 @@ export type SocketConfig = {
     cachedGroupMetadata: (jid: string) => Promise<GroupMetadata | undefined>
 
     makeSignalRepository: (auth: SignalAuthState) => SignalRepository
+
+    /** Socket passthrough */
+    socket?: any
 }

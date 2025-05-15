@@ -1,11 +1,12 @@
 import { Boom } from '@hapi/boom'
 import { proto } from '../../WAProto'
+import { ILogger } from './logger'
 import { SignalRepository, WAMessageKey } from '../Types'
 import { areJidsSameUser, BinaryNode, isJidBroadcast, isJidGroup, isJidMetaIa, isJidNewsletter, isJidStatusBroadcast, isJidUser, isLidUser } from '../WABinary'
 import { unpadRandomMax16 } from './generics'
-import { ILogger } from './logger'
 
 export const NO_MESSAGE_FOUND_ERROR_TEXT = 'Message absent from node'
+
 export const MISSING_KEYS_ERROR_TEXT = 'Key used already or never filled'
 
 export const NACK_REASONS = {
@@ -48,7 +49,7 @@ export function decodeMessageNode(
 	const isMeLid = (jid: string) => areJidsSameUser(jid, meLid)
 
 	if(isJidUser(from) || isLidUser(from)) {
-		if(recipient && !isJidMetaIa(recipient)) {
+		if (recipient && !isJidMetaIa(recipient)) {
 			if(!isMe(from) && !isMeLid(from)) {
 				throw new Boom('receipient present, but msg not from me', { data: stanza })
 			}
@@ -68,6 +69,10 @@ export function decodeMessageNode(
 		msgType = 'group'
 		author = participant
 		chatId = from
+	} else if(isJidNewsletter(from)) {
+		msgType = 'newsletter'
+		author = from
+		chatId = from
 	} else if(isJidBroadcast(from)) {
 		if(!participant) {
 			throw new Boom('No participant in group message')
@@ -82,22 +87,19 @@ export function decodeMessageNode(
 
 		chatId = from
 		author = participant
-	} else if(isJidNewsletter(from)) {
-		msgType = 'newsletter'
-		chatId = from
-		author = from
 	} else {
 		throw new Boom('Unknown message type', { data: stanza })
 	}
 
-	const fromMe = (isLidUser(from) ? isMeLid : isMe)(stanza.attrs.participant || stanza.attrs.from)
+	const fromMe = isJidNewsletter(from) ? !!stanza.attrs?.is_sender || false : (isLidUser(from) ? isMeLid : isMe)(stanza.attrs.participant || stanza.attrs.from)
 	const pushname = stanza?.attrs?.notify
 
 	const key: WAMessageKey = {
 		remoteJid: chatId,
 		fromMe,
 		id: msgId,
-		participant
+		participant,
+		server_id: stanza.attrs?.server_id
 	}
 
 	const fullMessage: proto.IWebMessageInfo = {
@@ -105,6 +107,10 @@ export function decodeMessageNode(
 		messageTimestamp: +stanza.attrs.t,
 		pushName: pushname,
 		broadcast: isJidBroadcast(from)
+	}
+	
+	if (msgType === 'newsletter') {
+		fullMessage.newsletterServerId = +stanza.attrs?.server_id
 	}
 
 	if(key.fromMe) {
@@ -150,7 +156,7 @@ export const decryptMessageNode = (
 
 					decryptables += 1
 
-					let msgBuffer: Uint8Array
+					let msgBuffer: Uint8Array					
 
 					try {
 						const e2eType = tag === 'plaintext' ? 'plaintext' : attrs.type
@@ -174,22 +180,25 @@ export const decryptMessageNode = (
 						case 'plaintext':
 							msgBuffer = content
 							break
+						case undefined:
+							msgBuffer = content
+							break
 						default:
 							throw new Error(`Unknown e2e type: ${e2eType}`)
 						}
 
 						let msg: proto.IMessage = proto.Message.decode(e2eType !== 'plaintext' ? unpadRandomMax16(msgBuffer) : msgBuffer)
-						msg = msg.deviceSentMessage?.message || msg
+						msg = msg?.deviceSentMessage?.message || msg
+
 						if(msg.senderKeyDistributionMessage) {
-							//eslint-disable-next-line max-depth
-						    try {
+							try {
 								await repository.processSenderKeyDistributionMessage({
 									authorJid: author,
 									item: msg.senderKeyDistributionMessage
 								})
 							} catch(err) {
 								logger.error({ key: fullMessage.key, err }, 'failed to decrypt message')
-						        }
+								}
 						}
 
 						if(fullMessage.message) {
